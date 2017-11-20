@@ -277,8 +277,9 @@ sub TestDirEmpty {
     @nFiles = grep(!/^\./, readdir(DIR)); #Forget about . files
     if($nFiles[0]){
 	if($srcOrTgt eq "tgt"){
-	    print "\n$dirName not empty, overwrite using $tool Y/N?:";
-	    chop($ans = <STDIN>);
+	    # print "\n$dirName not empty, overwrite using $tool Y/N?:";
+	    # chop($ans = <STDIN>);
+        $ans = "Y";
 	    if ($ans =~ /^[yY]/){
 		print "\nRemoving files from $dirName\n";
 		$nFiles[0] = unlink(<$dirName/*>);
