@@ -1,7 +1,7 @@
 ==> Experiments/state34_mix1/result/testResult <==
 ------------------------ Overall Results --------------------------
-SENT: %Correct=97.82 [H=224, S=5, N=229]
-WORD: %Corr=99.27, Acc=99.27 [H=682, D=0, S=5, I=0, N=687]
+SENT: %Correct=97.39 [H=224, S=6, N=230]
+WORD: %Corr=99.13, Acc=99.13 [H=684, D=0, S=6, I=0, N=690]
 ===================================================================
 
 ==> Experiments/state34_mix1/result/trainResult <==
