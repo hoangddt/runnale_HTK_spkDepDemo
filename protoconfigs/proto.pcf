@@ -13,7 +13,7 @@ nStates: 36
 nStreams: 1
 sWidths: 39
 mixes: 1
-parmKind: MFCC_E
+parmKind: MFCC_E_D_A
 vecSize: 39
 outDir: proto
 hmmList: vocab/hmmList
