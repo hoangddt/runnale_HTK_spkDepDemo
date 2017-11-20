@@ -1,0 +1,14 @@
+*** De chay duoc demo can thuc hien cac buoc sau:
+
+0. Build cac tool cua HTK-3.4.1 (vi du, HCopy, HVite,..) va copy tat ca binary files vao thu muc ./HTK_spkDepDemo/HTK-3.4.1/bin
+1. Chuyen den lam viec tai thư mục HTK_spkDepDemo.
+2. Go "perl ./runDemo" de chay demo. Perl script nay la phien ban rut gon cua script goc ./runDemo.pl.
+3. Khi Perl script nay chay xong, xem:
+- Ket qua nhan dang tren toan bo du lieu huan luyen (goi la Closed test) trong file ./result/trainResult.
+(ket qua nhan dang cua tung file trong thu muc ./result/train).
+- Ket qua nhan dang tren toan bo du lieu kiem thu (goi la Open test) trong file ./result/testResult.
+(ket qua nhan dang cua tung file trong thu muc ./result/test).
+
+*** De thu nghiem cac cau hinh HMM khac nhau, chinh sua noi dung cua 2 files & xem ket qua thay doi ntn:
+./configs/monPlainM1S1.dcf va ./protoconfigs/proto.pcf
+

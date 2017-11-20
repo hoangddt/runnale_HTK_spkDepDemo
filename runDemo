@@ -1,0 +1,584 @@
+#!/usr/bin/perl
+
+# Global Variables
+
+$networkTxt="vocab/network.txt";
+$lattice="vocab/wdnet";
+
+$trDataDir="scr/train.scr";    # Parameterised training data files
+$teDataDir="scr/test.scr";    # Parameterised test data files
+$dataFiles=$trDataFiles;             # Pointer to parameterised data files
+
+$HHED="HTK-3.4.1/bin/HHEd";	# duy adds path to HTK binaries for disambiguing with HTS's 
+$HLED="HTK-3.4.1/bin/HLEd";
+$HCOPY="HTK-3.4.1/bin/HCopy";
+$HLIST="HTK-3.4.1/bin/HList";
+$HINIT="HTK-3.4.1/bin/HInit";
+$HREST="HTK-3.4.1/bin/HRest";
+$HEREST="HTK-3.4.1/bin/HERest";
+$HQUANT="HTK-3.4.1/bin/HQuant";
+$HSMOOTH="HTK-3.4.1/bin/HSmooth";
+$HRESULTS="HTK-3.4.1/bin/HResults";
+$HVITE="HTK-3.4.1/bin/HVite";
+$MAKEPROTO="./MakeProtoHMMSet";
+
+$numIters=1;                                # Number of training iterations
+$traceTools=0;                              # Display tool call tracing
+$labTrain="mlf/train.mlf";                          #Pointer to relevant train master label file 
+$labTest="mlf/test.mlf";				#Pointer to relevant test master label file
+
+
+
+$monTiedhs="";                      # Pointer to HHEd ed file for TIEDHS mons
+$monSharedhsM1="edfiles/monSharedhsM1.hed";# HHEd ed file for SHAREDHS mons M1
+$monSharedhsM2="edfiles/monSharedhsM2.hed";# HHEd ed file for SHAREDHS mons M2
+
+$contDepHmmList="lists/contDepList";        # List of 
+
+$testList="list/testList";
+$trainList="list/trainList";
+$hmmList="vocab/hmmList";                       # Pointer to relevant HMM list
+
+$vocab="vocab/vocab";			    # Vocab file
+$hmmVocab=$vocab;                     # Pointer to relevant HMM vocab
+$srcFmt="";                                 # Source file format
+$triConv=0;                                 # Convert to triphones?
+$configParams;                              # Global store of config parameters
+$hrestConf="toolconfigs/hrest.conf";          # HRest conf file
+$hinitConf="toolconfigs/hinit.conf";          # HInit conf file
+$hcopyConf="toolconfigs/hcopy.conf";          # HCopy conf file
+$hhedConf="toolconfigs/hhed.conf";            # HHEd conf file
+$herestConf="toolconfigs/herest.conf";        # HERest conf file
+$hsmoothConf="toolconfigs/hsmooth.conf";      # HSmooth conf file
+$hviteConf="toolconfigs/hvite.conf";          # HVite conf file
+$hquantConf="toolconfigs/hquant.conf";        # HQuant conf file
+$macroStr="";               # String for tool -H option, either "-H file" or ""
+
+
+$network="networks/monLattice";                       # Pointer to recognition network
+$cOptStr="";
+$pOptStr="";
+$aOptStr="";
+$contDep="";
+
+#***************************** START MAIN ***********************************
+$|=1; #Force buffer flush on STDOUT
+
+($ENV{PWD} =~ /HTK_spkDepDemo$/) || die "Must be in directory HTK_spkDepDemo to run this script\n";
+
+
+&ReadTCF();
+
+$nS=$configParams{"nStreams"};
+$cK=$configParams{"covKind"};
+
+&SetToolConfs();
+
+$numIters=$configParams{"HERest_Iter"};
+
+if($configParams{"Clean_up"} =~ /^[yY]/){
+    &CleanUp();
+}
+if($configParams{"Trace_tool_calls"} =~ /^[yY]/){
+   $aOptStr="-A";
+}
+
+#*********************** PRE TRAINING ************************
+
+if($configParams{"HCopy"} =~ /^[yY]/){
+   &HCopy("mfcs/train", "list/trainfiles","train");
+   &HCopy("mfcs/test", "list/testfiles","test");
+}
+if($configParams{"HList"} =~ /^[yY]/){
+   &HList();
+}
+if($configParams{"HQuant"} =~ /^[yY]/){
+   &HQuant();
+}
+if($nS==1){
+    $contDepTiedhs = $contDepTiedhsS1;
+    $monTiedhs = $monTiedhsS1;
+}else{
+    $contDepTiedhs = $contDepTiedhsS3;
+    $monTiedhs = $monTiedhsS3;
+}
+
+&HParse($networkTxt,$lattice);
+
+#*************************** TRAINING *************************
+
+&MkMonSys();
+
+#*************************** TESTING **************************
+
+if($configParams{"hsKind"} =~ /^[pPsS]/){
+    $pOptStr="-p 5.0";
+}else{
+    $pOptStr="-p -1.0";
+}
+if($configParams{"direct_audio"} =~ /^[yY]/){
+    &HViteAudio($hmmVocab,$hmmList,$network);
+}elsif($configParams{"HVite"} =~ /^[yY]/){
+    print "\nTesting on the training set\n";
+    $dataFiles=$trDataDir;
+
+    $trainResultDir="result/train";
+    $testResultDir="result/test";
+    $trResFile="result/trainResult";
+    $teResFIle="result/testResult";
+
+
+
+    &HVite($lattice,$labTrain,$hmmVocab,$hmmList,$dataFiles,$trainResultDir,$trResFile);
+    unlink(<test/*>);
+    print "\nTesting on the test set\n";
+    $dataFiles=$teDataDir;
+    &HVite($lattice,$labTest,$hmmVocab,$hmmList,$dataFiles, $testResultDir, $teResFIle);
+}
+
+#******************************* END MAIN *********************************
+
+#************************ Util Functions **********************************
+
+#----------------------------------
+# MkMonSys: make a monophone system
+#----------------------------------
+sub MkMonSys {
+    local($fromProto)=0;
+
+    $protoName="proto.pcf";
+    
+(-f "protoconfigs/$protoName")||die "Cannot find proto config file /$protoName\n";
+
+    $labFiles=$labTrain;
+    $srcFmt="-G WAV";
+
+    if($configParams{"HLEd"} =~ /^[yY]/){
+	&HLEd($srcFmt,$labDir,$hmmList,$edFile,$labFiles);
+    }
+    if($configParams{"HInit"} =~ /^[yY]/){
+        print $configParams{"HInit"};
+        &HInit($labTrain,$protoName,$hmmList);
+    }
+    if($configParams{"HRest"} =~ /^[yY]/){
+        &HRest($labDir,$hmmList);
+    }
+    if($configParams{"HERest"} =~ /^[yY]/){
+	if($configParams{"HERest_par_mode"} =~ /^[yY]/){
+	    &HERestPar($numIters,$labDir,$hmmList);
+	}else{
+	    &HERest($numIters,$labDir,$hmmList);
+	}
+    }
+    $srcDir="hmms/hmm.1";
+    $tgtDir="hmms/hmm.0";
+    if($configParams{"hsKind"} =~ /^[sS]/){
+        &HHEd($srcDir,$tgtDir,$hmmList,$monSharedhsM1);
+        &HRest($monLabDir,$hmmList);
+        &HERest($numIters,$labDir,$hmmList);
+    }elsif($configParams{"hsKind"} =~ /^[tT]/){
+        &HHEd($srcDir,$tgtDir,$hmmList,$monTiedhs);
+        &HRest($monLabDir,$hmmList);
+        &HERest($numIters,$labDir,$hmmList);
+    }
+}
+
+
+#------------------------------------------
+# CleanUp: Clear model and file directories
+#------------------------------------------
+sub CleanUp {
+    print "Cleaning up directories\n";
+    unlink(<hmms/hmm.0/*>);
+    unlink(<hmms/hmm.1/*>);
+    unlink(<hmms/hmm.2/*>);
+    unlink(<hmms/tmp/*>);
+    unlink(<test/*>);
+    unlink(<accs/hmm.2/*>);
+    unlink(<proto/*>);
+    print "Done cleaning\n";
+}
+
+#-----------------------------------------------------------
+# SetToolConfs: Set tool configuration files for discrete or
+#               continuous density HMMs
+#-----------------------------------------------------------
+sub SetToolConfs {
+    local($sysId);
+
+    if($configParams{"hsKind"} =~ /^[dD]/){
+	$sysId=VQ;
+    }else{
+	$sysId=CD;
+    }
+    system("cp toolconfigs/hinit${sysId}.conf toolconfigs/hinit.conf");
+    system("cp toolconfigs/hrest${sysId}.conf toolconfigs/hrest.conf");
+    system("cp toolconfigs/herest${sysId}.conf toolconfigs/herest.conf");
+    system("cp toolconfigs/hsmooth${sysId}.conf toolconfigs/hsmooth.conf");
+    system("cp toolconfigs/hvite${sysId}.conf toolconfigs/hvite.conf");
+    if($configParams{"direct_audio"} =~ /^[yY]/){
+	system("cp toolconfigs/hcopyDA.conf toolconfigs/hcopy.conf");
+	system("cp toolconfigs/hviteDA.conf toolconfigs/hvite.conf");
+    }else{
+	system("cp toolconfigs/hcopyFB.conf toolconfigs/hcopy.conf");
+    }
+}
+
+
+#--------------------------------------------------------------------
+# ReadTCF: Reads the Test Config File and sets parameters accordingly 
+#--------------------------------------------------------------------
+sub ReadTCF {
+
+local($validData,$param,$val)=0;
+
+open(CONFIG, "configs/monPlainM1S1.dcf"); #read tcf from STDIN
+while(<CONFIG>){
+    if(/\<ENDsys_setup\>/ || /\<ENDtool_steps\>/){
+	$validData=0;
+    }
+    if($validData){
+	($param,$val)=split(/ *: */, $_);
+	if ($param =~ /nMixes/){
+	    @mixes=split(/ +/, $_);
+	}
+        $val =~ tr/A-Z/a-z/;
+        chop($val);
+        $configParams{$param}=$val;
+        write;
+    }
+    if(/\<BEGINsys_setup\>/ || /\<BEGINtool_steps\>/){
+	$validData=1;
+    }
+}
+format STDOUT_TOP =
+ Test Config File Read
+ =====================
+Parameter         Value
+-----------------------
+.
+format STDOUT=
+@<<<<<<<<<<<<<<<<<<<@<<<<<<<<<<
+$param,$val
+.
+}
+#-------------------------------------------------------------------
+# TestDirEmpty: Tests if directory is empty and prompts user for the 
+#               deletion of any files found
+#-------------------------------------------------------------------
+sub TestDirEmpty {
+    # Get arguments
+    local($dirName, $srcOrTgt, $tool) = @_;
+    local(@nFiles,$rtnVal);
+
+    $rtnVal=1;
+
+    opendir(DIR,$dirName) || die "Can't open $dirName\n";
+    @nFiles = grep(!/^\./, readdir(DIR)); #Forget about . files
+    if($nFiles[0]){
+	if($srcOrTgt eq "tgt"){
+	    print "\n$dirName not empty, overwrite using $tool Y/N?:";
+	    chop($ans = <STDIN>);
+	    if ($ans =~ /^[yY]/){
+		print "\nRemoving files from $dirName\n";
+		$nFiles[0] = unlink(<$dirName/*>);
+		print "Removed $nFiles[0] files\n";
+		$rtnVal=1;
+	    }else{
+		print "\nDirectory $dirName unaltered, skipping to next test\n";
+		$rtnVal=0;
+	    }
+	}
+    }else{
+	if($srcOrTgt eq "src"){
+	    die "Source Directory Empty $dirName\n";
+	}	    
+    }
+    $rtnVal;
+}
+
+#-------------------------------------------------------------------
+# SetMacroStr: Generate -H option string dependent on whether source
+#              directory contains a macro file
+#------------------------------------------------------------------- 
+sub SetMacroStr {
+    # Get arguments
+    local($srcDir) = @_;
+
+    if (-r $srcDir."/newMacros"){
+	$macroStr = "-H ".$srcDir."/newMacros";
+    }else{
+	$macroStr = "";
+    }
+}  
+
+#************************** HTK Tool Functions ********************************
+
+#-------------------------------------------------------------------------
+# HCopy: Calls HCopy to convert TIMIT data files to HTK parameterised ones
+#-------------------------------------------------------------------------
+sub HCopy {
+    local($tgtDir,$fileStubList,$src)=@_;
+
+    local($srcDir)="WAVFiles/$src";
+
+    &TestDirEmpty($srcDir,"src","HCopy");
+    if (&TestDirEmpty($tgtDir,"tgt","HCopy")){
+	open(FILESTUBLIST, $fileStubList);
+	while(<FILESTUBLIST>) {   # read HMM name into $_
+	    chop($_);
+	    system("$HCOPY -A -C $hcopyConf -D $srcDir/$_.wav $tgtDir/$_.mfc");
+	}
+    }
+}
+
+#---------------------------------------------------------------
+# HInit: Calls initialisation tool HInit for each HMM in hmmList
+#---------------------------------------------------------------        
+sub HInit {
+    # Get arguments
+    local($labDir,$protoName,$hmmList) = @_;
+    local($tgtDir)="hmms/hmm.0";
+    local($srcDir)="proto";
+    
+    system("echo \"\n\n$MAKEPROTO protoconfigs/$protoName\"");
+    system("$MAKEPROTO protoconfigs/$protoName");
+
+    &SetMacroStr($srcDir);
+
+    if (&TestDirEmpty($tgtDir,"tgt","HInit")){
+	open(HMMLIST, $hmmList);
+	while(<HMMLIST>) {   # read HMM name into $_
+	    chop($_);
+	    print(STDOUT "\n\nCalling HInit for HMM ",$_,"\n");
+	    system("($HINIT $aOptStr -i 10 -I $labTrain -l $_ -o $_ $macroStr -C $hinitConf -D -M $tgtDir -T 1 $srcDir/$_ $dataFiles -S $trDataDir)");
+	}
+	close(HMMLIST);
+    }
+}
+
+#-----------------------------------------------------------------------
+# HRest: Calls isolated re-estimation tool HRest for each HMM in hmmList
+#-----------------------------------------------------------------------
+sub HRest {
+    # Get arguments
+    local($labDir,$hmmList) = @_;
+    local($srcDir,$tgtDir);
+
+    $srcDir="hmms/hmm.0";
+    $tgtDir="hmms/hmm.1";
+
+    &SetMacroStr($srcDir);
+
+    &TestDirEmpty($srcDir,"src","HRest");
+
+    if (&TestDirEmpty($tgtDir,"tgt","HRest")){
+	open(HMMLIST, $hmmList);
+	while(<HMMLIST>) {   # read HMM name into $_
+	    chop($_);
+	    print(STDOUT "\n\nCalling HRest for HMM ",$_,"\n");
+	    system("($HREST $aOptStr -u tmvw -w 3 -v 0.05 -i 10 -I $labTrain -l $_ -C $hrestConf $macroStr -D -M $tgtDir -T 1 $srcDir/$_ $dataFiles -S $trDataDir)");
+	}
+	close(HMMLIST);
+    }
+}
+
+#-------------------------------------------------------------------------
+# HERest: Calls embedded re-estimation tool HERest on all HMMs in hmmList
+#         for the required number of iterations
+#-------------------------------------------------------------------------
+sub HERest {
+    # Get arguments
+    local($numIters,$labDir,$hmmList) = @_;
+    local($srcDir,$tgtDir,$tmpDir,$i);
+
+    $srcDir="hmms/hmm.1";
+    $tgtDir="hmms/hmm.2";
+    $tmpDir="hmms/tmp";
+
+    &TestDirEmpty($srcDir,"src","HERest");
+
+    &SetMacroStr($srcDir);
+ 
+    if (&TestDirEmpty($tgtDir,"tgt","HERest")){
+	$i=1;
+	while($i<=$numIters){
+	    print (STDOUT "\n\nIteration ",$i," of Embedded Re-estimation\n");
+	    system("($HEREST $aOptStr -w 3 -v 0.05 -C $herestConf -u tmvw $cOptStr -d $srcDir $macroStr -D -M $tgtDir -I $labTrain -t 2000.0 -T 1 $hmmList $dataFiles -S $trDataDir)");
+	    if ($numIters > 1){
+		system("cp $tgtDir/* $tmpDir");
+		$srcDir=$tmpDir;
+		&SetMacroStr($srcDir);
+	    }
+	    $i++;
+	}
+	$i = unlink(<$tmpDir/*>);
+	print "Removed $i files from $tmpDir\n";
+    }
+}
+
+
+#------------------------------------------------------------------
+# HVite: Calls Viterbi recognition tool HVite using HMMs in hmmList
+#        and test files in testSet and network
+#------------------------------------------------------------------
+sub HVite {
+    # Get arguments
+    local($net,$labDir,$hmmVocab,$hmmList,$testSet,$tgtDir,$resultFile) = @_;
+    local($srcDir);
+
+    $srcDir="hmms/hmm.2";
+    
+
+    &TestDirEmpty($srcDir,"src","HVite");
+
+    $dataFiles=$testSet;
+
+    &SetMacroStr($srcDir);
+
+    print "$testSet  |  $tgtDir  |  $resultFile";
+ 
+    if (&TestDirEmpty($tgtDir,"tgt","HVite")){
+       system("($HVITE $aOptStr -C $hviteConf -d $srcDir -l $tgtDir -w $net $macroStr -D -t 300.0 -T 1 $pOptStr -s 0.0  $hmmVocab $hmmList -S $dataFiles )");
+    }
+    #system("$HRESULTS $aOptStr -s -I $labDir $hmmList $tgtDir/*.rec");
+    system("$HRESULTS $aOptStr -s -I $labDir $hmmList $tgtDir/*.rec > $resultFile");
+
+}
+
+#--------------------------------------------------------------
+# HViteAudio: Calls Viterbi recognition tool HVite taking input
+#             directly from the machine audio
+#--------------------------------------------------------------
+sub HViteAudio {
+    # Get arguments
+    local($hmmVocab,$hmmList,$net) = @_;
+    local($srcDir,$tgtDir,$conf,$carryOn);
+
+    $srcDir="hmms/hmm.2";
+    $tgtDir="test";
+    $conf="toolconfs/hvite.conf";
+    $carryOn=1;
+
+    &TestDirEmpty($srcDir,"src","HVite");
+ 
+    $proc=`ps`;
+    if( $proc =~ /.*HVite.*/ ){
+	die "ERROR: There is an HVite process running already\n";
+    }else{
+	print "*****************************************\n";
+        print "*        At the READY[x]> prompt        *\n";
+	print "*    Press rtn to start/stop speaking   *\n";
+        print "* Press any key followed by rtn to exit *\n";
+	print "*****************************************\n\n";
+	system("($HVITE -A -T 1 -t 150.0 -g -n 3 5 -e -i outaudio -C $conf -d $srcDir -w $net -p -10.0 -s 5.0 $hmmVocab $hmmList)&");
+	@ps=split(/HVite/, `ps`);
+	@pid=split(/ +/, $ps[0]);
+
+	while ($carryOn) {
+            $ans = <STDIN>;
+	    if ($ans =~ /^\n/){
+		kill 16, $pid[$#pid - 2];
+	    }else{
+		kill 9, $pid[$#pid - 2];
+		$carryOn=0;
+	    }
+	}
+    }
+}
+
+
+#-------------------------------------------------------------------------
+# HERestPar: Calls embedded re-estimation tool HERest in parallel mode on 
+#            all HMMs in hmmList hmmList for the required number of 
+#            iterations
+#-------------------------------------------------------------------------
+sub HERestPar {
+    # Get arguments
+    local($numIters,$labDir,$hmmList) = @_;
+    local($srcDir,$tgtDir,$tmpDir,$i,$accOrDataFiles,$parNum);
+
+    $srcDir="hmms/hmm.1";
+    $tgtDir="hmms/hmm.2";
+    $accDir="accs/hmm.2";
+    $tmpDir="hmms/tmp";
+    $parNum=1;
+
+    $accOrDataFiles=$dataFiles;
+
+    &TestDirEmpty($srcDir,"src","HERest - parallel");
+
+    &SetMacroStr($srcDir);
+
+    if (&TestDirEmpty($accDir,"tgt","HERest - parallel")){
+	$i=1;
+	while($i<=$numIters){
+	    print (STDOUT "\n\nIteration ",$i," of Embedded Re-estimation\n");
+	    system("($HEREST $aOptStr -C $herestConf -w 3 -v 0.05 -p $parNum -d $srcDir $macroStr -D -M $accDir -I $labDir -t 2000.0 -T 1 $hmmList $accOrDataFiles)");
+	    $parNum=0;
+	    $accOrDataFiles=$accDir."/HER1.acc";
+            system("($HEREST $aOptStr -C $herestConf -w 3 -v 0.05 -p $parNum -d $srcDir $macroStr -D -M $tgtDir -I $labDir -t 2000.0 -T 1 $hmmList $accOrDataFiles)");
+	    if ($numIters > 1){
+		print "\n\n";
+                system("echo \"cp $tgtDir/* $tmpDir\"");
+		system("cp $tgtDir/* $tmpDir");
+		$srcDir=$tmpDir;
+		&SetMacroStr($srcDir);
+	    }
+	    $i++;
+	    $parNum=1;
+	    $accOrDataFiles=$dataFiles;
+	}
+	$i = unlink(<$tmpDir/*>);
+	print "Removed $i files from $tmpDir\n";
+    }
+}
+
+#------------------------------------
+# HLEd: Invokes the label editor HLEd
+#------------------------------------
+sub HLEd {
+    # Get arguments
+    local($srcFmt,$labDir,$hmmList,$ledFile,$labFiles) = @_;
+
+    if (&TestDirEmpty($labDir,"tgt","HLEd")){
+       system("$HLED $aOptStr $srcFmt -l $labDir -n $hmmList -D -T 1 $ledFile $labFiles");
+    }
+}
+
+#----------------------------------------------------------------------------
+# HList: Invokes HList to display the headers of all parameterised data files
+#        created for training together with the 1st 10 lines of the 1st file.
+#----------------------------------------------------------------------------
+sub HList {
+    local($tr1fname)="data/train/tr1.mfc";
+
+    print (STDOUT "Display some of the data files\n");
+    print (STDOUT "This demonstrates the use of HList\n");
+    
+    unless(-r $tr1fname){
+	die "Cannot read file $tr1fname\n";
+    }
+    print (STDOUT"\n\nTraining data file headers\n");
+    system("$HLIST $aOptStr -D -h -z data/train/tr*.mfc");
+    print (STDOUT "\n\nFirst 10 frames of tr1.mfc (with deltas appended)\n");
+    system("$HLIST -aOptStr -e 10 $tr1fname");
+}
+
+#----------------------------------------------------------------------------
+# HParse: Create a network file to be used in HVite Tool to recognize
+#        an input speech file
+#----------------------------------------------------------------------------
+
+sub HParse {
+        local($srcFile,$tgtFile)=@_;
+
+        unless ((-r $srcFile )||(-r $tgtFile)) {
+            die "Can't open Source or Target file!";
+        }
+
+        print (STDOUT"\n\nCreate Network file:");
+        print (STDOUT "Source file is $srcFile\n Target file is: $tgtFile\n" );
+        system("HParse $srcFile $tgtFile");
+
+}

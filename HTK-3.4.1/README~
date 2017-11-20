@@ -1,0 +1,1 @@
+In configure file, "-m32" must be replaced with "-m64" for building on 64-bit linux machine. 
