@@ -11,10 +11,10 @@ hsKind: P
 covKind: D
 nStates: 30
 nStreams: 1
-sWidths: 39
+sWidths: 26
 mixes: 1
 parmKind: MFCC_E_D
-vecSize: 39
+vecSize: 26
 outDir: proto
 hmmList: vocab/hmmList
 <ENDsys_setup>
