@@ -9,7 +9,7 @@
 
 hsKind: P
 covKind: D
-nStates: 8
+nStates: 9
 nStreams: 1
 sWidths: 39
 mixes: 1
