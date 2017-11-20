@@ -72,7 +72,7 @@ $|=1; #Force buffer flush on STDOUT
 $nS=$configParams{"nStreams"};
 $cK=$configParams{"covKind"};
 
-&SetToolConfs();
+# &SetToolConfs();
 
 $numIters=$configParams{"HERest_Iter"};
 
