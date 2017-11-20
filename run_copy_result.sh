@@ -1,4 +1,6 @@
 #!/bin/bash
+rm -rf result/testResult result/trainResult
+rm -rf result/test/* result/train/*
 
 ./runDemo > /dev/null 2>&1
 mkdir Experiments/state$1_mix$2
