@@ -12,7 +12,7 @@ covKind: D
 nStates: 36
 nStreams: 1
 sWidths: 39
-mixes: 1 1 1
+mixes: 4
 parmKind: MFCC_E_D_A
 vecSize: 39
 outDir: proto
